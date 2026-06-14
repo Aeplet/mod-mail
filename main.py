@@ -7,13 +7,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from constants import TOKEN, MODMAIL_FORUM_ID, PREFIX, ANONYMOUS_REPLIES
+from constants import TOKEN, MODMAIL_FORUM_ID, PREFIX, ANONYMOUS_REPLIES, PLAYING_MESSAGE
 
 discord.utils.setup_logging()
 
 intents = discord.Intents.default() # No privileged intents, no guarantee we would be approved for them.
 allowed_mentions = discord.AllowedMentions(everyone=False, roles=False)
-bot = commands.Bot(allowed_mentions=allowed_mentions, intents=intents, command_prefix=PREFIX)
+bot = commands.Bot(allowed_mentions=allowed_mentions, intents=intents, command_prefix=PREFIX, activity=discord.Game(PLAYING_MESSAGE))
 
 bot.ready = False
 bot.modmail_forum = None
