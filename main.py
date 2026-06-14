@@ -105,6 +105,7 @@ async def handle_modmail_dm(message: discord.Message):
 
 # reading this shit makes me wanna kill myself, holy fuck
 @app_commands.describe(reply_message="The message to reply with", anonymous_reply="Whether to hide the replier. Defaults to the value in constants.py")
+@app_commands.guild_install()
 @app_commands.guild_only()
 @bot.tree.command(name="reply", description="Reply to Mod-Mail message in the current thread")
 async def reply_command(interaction: discord.Interaction, reply_message: str, anonymous_reply: bool = ANONYMOUS_REPLIES, 
@@ -130,6 +131,7 @@ async def reply_command(interaction: discord.Interaction, reply_message: str, an
         await interaction.followup.send(f"Failed to DM {author.mention}.")
 
 @app_commands.guild_only()
+@app_commands.guild_install()
 @bot.tree.command(name="close", description="Close a Mod-Mail thread")
 async def close_command(interaction: discord.Interaction):
     if not isinstance(interaction.channel, discord.Thread) or interaction.channel.parent_id != bot.modmail_forum.id: # just an extra check to prevent it from being used in other forums
@@ -166,7 +168,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot or not isinstance(message.channel, discord.DMChannel):
+    if message.author.bot or not isinstance(message.channel, discord.DMChannel) or bot.modmail_:
         return # return instead of anything else like keeping the code in an if loop so it makes our on_message event easier to read
 
     await handle_modmail_dm(message=message)
