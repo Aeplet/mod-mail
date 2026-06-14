@@ -168,7 +168,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot or not isinstance(message.channel, discord.DMChannel) or bot.modmail_:
+    if message.author.bot or not isinstance(message.channel, discord.DMChannel):
         return # return instead of anything else like keeping the code in an if loop so it makes our on_message event easier to read
 
     await handle_modmail_dm(message=message)
