@@ -118,15 +118,16 @@ async def reply_command(interaction: discord.Interaction, reply_message: str, an
     await interaction.response.defer() # we need this or we only get like 3 seconds, with this we get up to 15 mins
 
     discord_files = []
-    for f in (file1, file2, file3, file4, file5, file6, file7, file8, file9, file10):
-        if f:
-            discord_files.append(await f.to_file())
+    for file in (file1, file2, file3, file4, file5, file6, file7, file8, file9, file10):
+        if file:
+            discord_files.append(await file.to_file())
 
     author = await get_modmail_thread_author(interaction.channel)
     content = f"Staff reply: {reply_message}" if anonymous_reply else f"{interaction.user.mention}: {reply_message}"
-    await author.send(content=content, files=discord_files)
+    # todo: reply function?
     try:
-        await interaction.followup.send("Reply sent!")
+        await author.send(content=content, files=discord_files)
+        await interaction.followup.send(f"Reply sent! Message: {reply_message}", files=discord_files)
     except discord.Forbidden:
         await interaction.followup.send(f"Failed to DM {author.mention}.")
 
