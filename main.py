@@ -103,7 +103,7 @@ async def handle_modmail_dm(message: discord.Message):
     finally:
         bot.modmail_locks.discard(user.id)
 
-# reading this shit makes me wanna kill myself, holy fuck
+# reading this shit makes me wanna kill myself, holy fuck (should we use a modal for reply?)
 @app_commands.describe(reply_message="The message to reply with", anonymous_reply="Whether to hide the replier. Defaults to the value in constants.py")
 @app_commands.guild_install()
 @app_commands.guild_only()
@@ -127,7 +127,7 @@ async def reply_command(interaction: discord.Interaction, reply_message: str, an
     # todo: reply function?
     try:
         await author.send(content=content, files=discord_files)
-        await interaction.followup.send(f"Reply sent! Message: {reply_message}", files=discord_files)
+        await interaction.followup.send(f"Reply sent! Message: `{reply_message}`", files=discord_files)
     except discord.Forbidden:
         await interaction.followup.send(f"Failed to DM {author.mention}.")
 
