@@ -196,7 +196,7 @@ async def close_command(interaction: discord.Interaction):
 @app_commands.guild_install()
 @bot.tree.command(name="ignore", description="Ignore a user from Mod-Mail")
 async def ignore_command(interaction: discord.Interaction, user: discord.User, quiet: bool, reason: str = None):
-    await interaction.response.defer(ephemeral=True) # we need this or we only get like 3 seconds, with this we get up to 15 mins
+    await interaction.response.defer() # we need this or we only get like 3 seconds, with this we get up to 15 mins
 
     ignored = add_ignore(user_id=user.id, reason=reason, is_quiet=quiet)
     if not ignored:
@@ -216,7 +216,7 @@ async def ignore_command(interaction: discord.Interaction, user: discord.User, q
 @app_commands.guild_install()
 @bot.tree.command(name="unignore", description="Unignore a user from Mod-Mail")
 async def unignore_command(interaction: discord.Interaction, user: discord.User):
-    await interaction.response.defer(ephemeral=True) # we need this or we only get like 3 seconds, with this we get up to 15 mins
+    await interaction.response.defer() # we need this or we only get like 3 seconds, with this we get up to 15 mins
 
     ignored = remove_ignore(user_id=user.id)
     if not ignored:
