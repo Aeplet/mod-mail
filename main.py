@@ -1,15 +1,19 @@
 # general lib imports
-import asyncio
+# todo: split this into multiple files, this is pretty messy... but it works for now.
 import random
+import sys
 from datetime import datetime, timezone
 
+# discord.py
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from constants import TOKEN, MODMAIL_FORUM_ID, PREFIX, ANONYMOUS_REPLIES, PLAYING_MESSAGE
+# other stuff such as sqlite3
+import sqlite3
 
-discord.utils.setup_logging()
+# constants
+from constants import TOKEN, MODMAIL_FORUM_ID, PREFIX, ANONYMOUS_REPLIES, PLAYING_MESSAGE
 
 intents = discord.Intents.default() # No privileged intents, no guarantee we would be approved for them.
 allowed_mentions = discord.AllowedMentions(everyone=False, roles=False)
@@ -18,6 +22,40 @@ bot = commands.Bot(allowed_mentions=allowed_mentions, intents=intents, command_p
 bot.ready = False
 bot.modmail_forum = None
 bot.modmail_locks = set()
+
+database = sqlite3.connect("modmail_data.sqlite")
+with database:
+    if database.execute('PRAGMA user_version').fetchone()[0] == 0:
+        print("Setting up database")
+        database.execute('PRAGMA application_id = 0x4D6F644D')  # ModM
+        database.execute('PRAGMA user_version = 1')
+        
+        try:
+            with open('schema.sql', 'r', encoding='utf-8') as f:
+                database.executescript(f.read())
+        except FileNotFoundError:
+            print("schema.sql not found!")
+            sys.exit(1)
+
+#### DATABASE FUNCTIONS
+
+def is_ignored(user_id: int):
+    with database:
+        return database.execute('SELECT quiet, reason FROM ignored WHERE user_id = ?', (user_id,)).fetchone()
+
+def add_ignore(user_id: int, reason: str = None, is_quiet: bool = False) -> bool:
+    try:
+        with database:
+            database.execute('INSERT INTO ignored VALUES (?, ?, ?)', (user_id, is_quiet, reason))
+            return True
+    except sqlite3.IntegrityError:
+        return False
+
+def remove_ignore(user_id: int) -> int:
+    with database:
+        return database.execute('DELETE FROM ignored WHERE user_id = ?', (user_id,)).rowcount
+
+#### BOT FUNCTIONS
 
 async def shutdown_bot():
     await bot.close()
@@ -58,7 +96,7 @@ async def user_has_open_thread(user: discord.User) -> tuple[bool, discord.Thread
     
     return False, None # we didn't find a thread for them.
 
-async def create_modmail_thread(user: discord.User, message=discord.Message) -> discord.Thread:
+async def create_modmail_thread(user: discord.User, message: discord.Message) -> discord.Thread:
     print(f"Creating Mod-Mail thread for user {user} ({user.id})")
     message_embed, files = await setup_message_contents(message=message)
     thread = await bot.modmail_forum.create_thread(
@@ -87,7 +125,8 @@ async def get_modmail_thread_author(thread: discord.Thread) -> discord.User:
 
 async def handle_modmail_dm(message: discord.Message):
     user = message.author
-    if user.id in bot.modmail_locks:
+    
+    if user.id in bot.modmail_locks or is_ignored(user.id): # when to not handle the DM
         return
     
     bot.modmail_locks.add(user.id)
@@ -103,18 +142,27 @@ async def handle_modmail_dm(message: discord.Message):
     finally:
         bot.modmail_locks.discard(user.id)
 
+def modmail_thread_only():
+    async def predicate(interaction: discord.Interaction):
+        if not isinstance(interaction.channel, discord.Thread) or interaction.channel.parent_id != bot.modmail_forum.id:
+            await interaction.response.send_message("This command can only be used in Mod-Mail threads.", ephemeral=True)
+            return False
+
+        return True
+
+    return app_commands.check(predicate)
+
+def modmail_command():
+    return app_commands.guild_only()(app_commands.guild_install()(modmail_thread_only()))
+
 # reading this shit makes me wanna kill myself, holy fuck (should we use a modal for reply?)
-@app_commands.describe(reply_message="The message to reply with", anonymous_reply="Whether to hide the replier. Defaults to the value in constants.py")
-@app_commands.guild_install()
-@app_commands.guild_only()
+@modmail_command()
+@app_commands.describe(reply_message="The message to reply with", anonymous_reply=f"Whether to hide the replier. Defaults to {ANONYMOUS_REPLIES}")
 @bot.tree.command(name="reply", description="Reply to Mod-Mail message in the current thread")
 async def reply_command(interaction: discord.Interaction, reply_message: str, anonymous_reply: bool = ANONYMOUS_REPLIES, 
     file1: discord.Attachment = None, file2: discord.Attachment = None, file3: discord.Attachment = None, file4: discord.Attachment = None, 
     file5: discord.Attachment = None, file6: discord.Attachment = None, file7: discord.Attachment = None, file8: discord.Attachment = None, 
     file9: discord.Attachment = None, file10: discord.Attachment = None):
-    if not isinstance(interaction.channel, discord.Thread) or interaction.channel.parent_id != bot.modmail_forum.id: # just an extra check to prevent it from being used in other forums
-        await interaction.response.send_message("This command can only be used in Mod-Mail threads.", ephemeral=True)
-        return
     await interaction.response.defer() # we need this or we only get like 3 seconds, with this we get up to 15 mins
 
     discord_files = []
@@ -131,13 +179,9 @@ async def reply_command(interaction: discord.Interaction, reply_message: str, an
     except discord.Forbidden:
         await interaction.followup.send(f"Failed to DM {author.mention}.")
 
-@app_commands.guild_only()
-@app_commands.guild_install()
+@modmail_command()
 @bot.tree.command(name="close", description="Close a Mod-Mail thread")
 async def close_command(interaction: discord.Interaction):
-    if not isinstance(interaction.channel, discord.Thread) or interaction.channel.parent_id != bot.modmail_forum.id: # just an extra check to prevent it from being used in other forums
-        await interaction.response.send_message("This command can only be used in Mod-Mail threads.", ephemeral=True)
-        return
     await interaction.response.defer() # we need this or we only get like 3 seconds, with this we get up to 15 mins
 
     now = datetime.now(timezone.utc)
@@ -146,6 +190,44 @@ async def close_command(interaction: discord.Interaction):
     # lock the thread, simple stuff
     await interaction.channel.edit(locked=True, archived=True, name=f"{interaction.channel.name} (ARCHIVED {timestamp})") # max theoretical is 84-88 chars. we're safe.
     await interaction.followup.send("Successfully closed thread!")
+
+@app_commands.describe(user="The user to ignore", quiet="Whether to silently ignore the user", reason="The reason for ignoring the user")
+@app_commands.guild_only()
+@app_commands.guild_install()
+@bot.tree.command(name="ignore", description="Ignore a user from Mod-Mail")
+async def ignore_command(interaction: discord.Interaction, user: discord.User, quiet: bool, reason: str = None):
+    await interaction.response.defer(ephemeral=True) # we need this or we only get like 3 seconds, with this we get up to 15 mins
+
+    ignored = add_ignore(user_id=user.id, reason=reason, is_quiet=quiet)
+    if not ignored:
+        await interaction.followup.send("Failed to ignore user. User already ignored possibly?") # should show an error reason from sqlite3?
+        return
+    
+    if not quiet:
+        try:
+            await user.send(f"Your messages are being ignored by staff. {f'Reason: {reason}' if reason else ''}")
+        except discord.Forbidden:
+            await interaction.followup.send(f"Failed to DM {user.mention}.")
+
+    await interaction.followup.send(f"Successfully ignored {user.mention} ({user.id})!")
+
+@app_commands.describe(user="The user to unignore")
+@app_commands.guild_only()
+@app_commands.guild_install()
+@bot.tree.command(name="unignore", description="Unignore a user from Mod-Mail")
+async def unignore_command(interaction: discord.Interaction, user: discord.User):
+    await interaction.response.defer(ephemeral=True) # we need this or we only get like 3 seconds, with this we get up to 15 mins
+
+    ignored = remove_ignore(user_id=user.id)
+    if not ignored:
+        await interaction.followup.send("User is not ignored!")
+        return
+    try:
+        await user.send(f"Your messages are no longer being ignored by staff.")
+    except discord.Forbidden:
+        await interaction.followup.send(f"Failed to DM {user.mention}.")
+    
+    await interaction.followup.send(f"Successfully unignored {user.mention} ({user.id})!")
 
 @bot.event
 async def on_ready():
@@ -174,8 +256,4 @@ async def on_message(message: discord.Message):
 
     await handle_modmail_dm(message=message)
 
-async def main():
-    async with bot:
-        await bot.start(TOKEN)
-
-asyncio.run(main())
+bot.run(TOKEN)

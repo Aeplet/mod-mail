@@ -219,3 +219,4 @@ __marimo__/
 
 # app stuff
 constants.py
+modmail_data.sqlite
