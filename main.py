@@ -109,13 +109,13 @@ async def create_modmail_thread(user: discord.User, message: discord.Message) ->
         files=files
     )
 
-    await message.add_reaction('\N{WHITE HEAVY CHECK MARK}')
+    await message.add_reaction("\N{INCOMING ENVELOPE}")
     return thread
 
 async def send_message_in_modmail_thread(thread: discord.Thread, message: discord.Message):
     message_embed, files = await setup_message_contents(message=message)
     await thread.send(content=str(message.author.id), embed=message_embed, files=files)
-    await message.add_reaction('\N{WHITE HEAVY CHECK MARK}')
+    await message.add_reaction("\N{INCOMING ENVELOPE}")
 
 async def get_modmail_thread_author(thread: discord.Thread) -> discord.User:
     username, user_id = thread.name.rsplit(" - ", 1)
