@@ -1,18 +1,11 @@
-# general lib imports
-# todo: split this into multiple files, this is pretty messy... but it works for now.
 import random
 import sys
 from datetime import datetime, timezone
-
-# discord.py
 import discord
 from discord import app_commands
 from discord.ext import commands
-
-# other stuff such as sqlite3
 import sqlite3
 
-# constants
 from constants import TOKEN, MODMAIL_FORUM_ID, PREFIX, ANONYMOUS_REPLIES, PLAYING_MESSAGE
 
 intents = discord.Intents.default() # No privileged intents, no guarantee we would be approved for them.
@@ -37,8 +30,6 @@ with database:
             print("schema.sql not found!")
             sys.exit(1)
 
-#### DATABASE FUNCTIONS
-
 def is_ignored(user_id: int):
     with database:
         return database.execute('SELECT quiet, reason FROM ignored WHERE user_id = ?', (user_id,)).fetchone()
@@ -54,8 +45,6 @@ def add_ignore(user_id: int, reason: str = None, is_quiet: bool = False) -> bool
 def remove_ignore(user_id: int) -> int:
     with database:
         return database.execute('DELETE FROM ignored WHERE user_id = ?', (user_id,)).rowcount
-
-#### BOT FUNCTIONS
 
 async def shutdown_bot():
     await bot.close()
@@ -110,6 +99,20 @@ async def create_modmail_thread(user: discord.User, message: discord.Message) ->
     )
 
     await message.add_reaction("\N{INCOMING ENVELOPE}")
+    return thread
+
+# takes a message str instead of a discord message object
+async def force_create_modmail_thread(user: discord.User, message: str) -> discord.Thread:
+    print(f"Force creating Mod-Mail thread for user {user} ({user.id})")
+    # should we make a create thread function to prevent this duplication?
+    thread = await bot.modmail_forum.create_thread(
+        name=f"{user} - {user.id}",
+        auto_archive_duration=10080, # in minutes. 10080 is 7 days, also acceptable is 60 (1 hour), 1440 (24 hours), 72 hours (3 days)
+        reason=f"Force created Mod-Mail thread for User {user.id}",
+        slowmode_delay=None,
+        content=f"Message for {user.id}: `{message}`",
+    )
+
     return thread
 
 async def send_message_in_modmail_thread(thread: discord.Thread, message: discord.Message):
@@ -228,6 +231,26 @@ async def unignore_command(interaction: discord.Interaction, user: discord.User)
         await interaction.followup.send(f"Failed to DM {user.mention}.")
     
     await interaction.followup.send(f"Successfully unignored {user.mention} ({user.id})!")
+
+@app_commands.describe(user="The user to create a thread for", message="The message to start the thread with")
+@app_commands.guild_only()
+@app_commands.guild_install()
+@bot.tree.command(name="create-thread", description="Force create a thread for a user")
+async def create_thread_command(interaction: discord.Interaction, user: discord.User, message: str, anonymous_message: bool = ANONYMOUS_REPLIES):
+    has_open_thread, thread = await user_has_open_thread(user=user)
+    if has_open_thread:
+        await interaction.response.send_message(f"User already has an open Mod-Mail thread: {thread.mention}")
+        return
+
+    thread = await force_create_modmail_thread(user=user, message=message)
+    content = f"Staff message: {message}" if anonymous_message else f"{interaction.user.mention}: {message}"
+    try:
+        await user.send(content)
+    except discord.Forbidden:
+        await interaction.response.send_message(f"Failed to DM {user.mention}. Closing thread.", ephemeral=True)
+        await thread.delete()
+        return
+    await interaction.response.send_message(f"Successfully opened thread! {thread.thread.mention}") # ThreadWithObject in discord.py is weird, reminder to myself here
 
 @bot.event
 async def on_ready():
